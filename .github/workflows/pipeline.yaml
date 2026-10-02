@@ -1,0 +1,77 @@
+name: Production Microservices CI/CD Pipeline
+
+on:
+  push:
+    branches: ["feature/jfrog-pipeline"]
+
+env:
+  REGISTRY: ${{ secrets.JFROG_REGISTRY }}
+  REPOSITORY: docker-local
+
+jobs:
+  build-scan-and-push:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6.0.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to JFrog Artifactory
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.JFROG_USERNAME }}
+          password: ${{ secrets.JFROG_PASSWORD }}
+
+      - name: Build Backend Docker Image
+        run: docker build -t "$REGISTRY/$REPOSITORY/backend-service:latest" ./backend
+
+      - name: Build Frontend Docker Image
+        run: docker build -t "$REGISTRY/$REPOSITORY/frontend-service:latest" ./frontend
+
+      - name: Run Trivy vulnerability scanner (Backend)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.REPOSITORY }}/backend-service:latest'
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Run Trivy vulnerability scanner (Frontend)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: '${{ env.REGISTRY }}/${{ env.REPOSITORY }}/frontend-service:latest'
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Push Backend Image to JFrog
+        run: docker push "$REGISTRY/$REPOSITORY/backend-service:latest"
+
+      - name: Push Frontend Image to JFrog
+        run: docker push "$REGISTRY/$REPOSITORY/frontend-service:latest"
+
+      - name: Deploy to Minikube Cluster
+        run: |
+          echo "Connecting to Minikube and deploying microservices..."
+          kubectl config use-context minikube || true
+          
+          # k8s-manifests ఫోల్డర్ లో ఉండే డిప్లాయ్‌మెంట్ మరియు సర్వీస్ ఫైల్స్ అప్లై చేయడం
+          kubectl apply -f ./k8s-manifests/
+          
+          # కొత్త ఇమేజ్ పుష్ అయింది కాబట్టి పాడ్స్ రీస్టార్ట్ అయ్యి లేటెస్ట్ ఇమేజ్ తీసుకోవడానికి
+          kubectl rollout restart deployment/backend-deployment || true
+          kubectl rollout restart deployment/frontend-deployment || true
