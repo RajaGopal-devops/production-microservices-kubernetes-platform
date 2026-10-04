@@ -23,8 +23,8 @@ jobs:
             SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
             args: >
-              -Dsonar.organization="rajagopal-devops"
-              -Dsonar.projectKey="RajaGopal-devops_production-microservices-kubernetes-platform"
+              -Dsonar.organization=rajagopal-devops
+              -Dsonar.projectKey=RajaGopal-devops_production-microservices-kubernetes-platform
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
